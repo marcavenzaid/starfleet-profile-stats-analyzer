@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Audio Preference Test Calculator</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      textarea {
+        width: 600px;
+        height: 300px;
+      }
+      .result {
+        margin-top: 20px;
+      }
+      #timeline {
+        border: 1px solid #ccc;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Starfleet Stats Analyzer</h1>
+    <p>Paste your data below (each record consists of 6+ lines) and click the Calculate button.</p>
+    <textarea id="inputData" placeholder="User Satisfaction
+c5Ia4ywEzOxo28F6yXt9p
+Mar 4, 2025
+11:13:50 AM
+0
+7m 32s
+Audio Preference Test (System Prompt) #20250223 - Pair 2
+YMqHKs7UqBtQjafXZbnD8
+Feb 28, 2025
+03:28:38 PM
+0
+1m 14s
+7
+Some Comment"></textarea>
+    <br /><br />
+    <button onclick="calculate()">Calculate</button>
+
+    <div class="result" id="output"></div>
+    <canvas id="timeline" style="width: 100%; border: none;"></canvas>
+
+    <script>
+      function calculate() {
+        "use strict";
+
+        // Utility functions to recognize a date line and a time line.
+        function isDateLine(line) {
+          // Expect format like: "Mar 4, 2025" or "Feb 28, 2025"
+          return /^[A-Za-z]{3}\s+\d{1,2},\s*\d{4}$/.test(line);
+        }
+
+        function isTimeLine(line) {
+          // Expect format like: "03:59:56 PM" or "11:06:15 AM"
+          return /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i.test(line);
+        }
+
+        // (Assumed existing conversion function: "03:59:56 PM" -> seconds from midnight)
+        function timeToSeconds(timeStr) {
+          const parts = timeStr.match(/(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)/i);
+          if (!parts) return NaN;
+          let hour = parseInt(parts[1], 10);
+          const minute = parseInt(parts[2], 10);
+          const second = parseInt(parts[3], 10);
+          const ampm = parts[4].toUpperCase();
+          if (ampm === "PM" && hour !== 12) hour += 12;
+          if (ampm === "AM" && hour === 12) hour = 0;
+          return hour * 3600 + minute * 60 + second;
+        }
+
+        // Assume these elements exist in your HTML.
+        let inputData = document.getElementById('inputData').value;
+        let lines = inputData.split(/\r?\n/).map(line => line.trim()).filter(line => line !== "");
+
+        if (lines.length === 0) {
+          document.getElementById('output').innerHTML = "<p style='color:red;'>No data provided</p>";
+          return;
+        }
+
+        // Find all indices where a line looks like a date and the next line looks like time.
+        let dateIndices = [];
+        for (let i = 0; i < lines.length - 1; i++) {
+          if (isDateLine(lines[i]) && isTimeLine(lines[i+1])) {
+            dateIndices.push(i);
+          }
+        }
+
+        // Now, for each found date index we assume the record is 6 lines long and the date is row 3.
+        // (That is, the record starts two lines BEFORE the date line.)
+        let records = [];
+        dateIndices.forEach(idx => {
+          if (idx >= 2 && (idx - 2 + 6) <= lines.length) {
+            let rec = lines.slice(idx - 2, idx - 2 + 6);
+            records.push(rec);
+          } else {
+            console.error(`Not enough lines to form a 6-line record for date at line ${idx+1}:`, lines[idx]);
+          }
+        });
+
+        if (records.length === 0) {
+          document.getElementById('output').innerHTML = "<p style='color:red;'>No valid records were found.</p>";
+          return;
+        }
+
+        // Now process each record (where we assume record[3] holds timestamp and record[5] holds duration)
+        let totalSeconds = 0;
+        let validRecords = 0;
+        let taskData = [];
+
+        records.forEach((record, index) => {
+          if (record.length < 6) {
+            console.error(`Record ${index + 1} has fewer than 6 lines:`, record);
+            return;
+          }
+
+          // record[3] is the time stamp – note that the date already exists in record[2] if needed.
+          let timestampStr = record[3];
+          let endSeconds = timeToSeconds(timestampStr);
+          if (isNaN(endSeconds)) {
+            console.error(`Timestamp format error in record ${index + 1}: "${timestampStr}" (expecting HH:MM:SS AM/PM)`);
+            return;
+          }
+
+          // record[5] is the duration.
+          let timeStr = record[5];
+          let match = timeStr.match(/^(?:(\d+)\s*m(?:\s*(\d+)\s*s?)?|(\d+)\s*s)$/i);
+          if (match) {
+            let minutes = 0, seconds = 0;
+            if (match[1] !== undefined) {
+              minutes = parseInt(match[1], 10);
+              seconds = match[2] ? parseInt(match[2], 10) : 0;
+            } else if (match[3] !== undefined) {
+              seconds = parseInt(match[3], 10);
+            }
+            let taskSeconds = minutes * 60 + seconds;
+            totalSeconds += taskSeconds;
+            
+            taskData.push({
+              // startTime is calculated by subtracting the duration from the end time.
+              startTime: endSeconds - taskSeconds,
+              duration: taskSeconds,
+              endTime: endSeconds
+            });
+            validRecords++;
+          } else {
+            console.error(`Duration format error in record ${index + 1}: "${timeStr}"`);
+          }
+        });
+
+        if (validRecords === 0) {
+          document.getElementById('output').innerHTML = "<p style='color:red;'>No valid records with a correct time format were found.</p>";
+          return;
+        }
+
+        let avgSeconds = totalSeconds / validRecords;
+
+        // Do something with avgSeconds, taskData, etc.
+        console.log("Average seconds per task:", avgSeconds);
+        console.log("Task data:", taskData);
+
+        document.getElementById('output').innerHTML = `<p>Processed ${validRecords} records.<br>Average duration: ${avgSeconds.toFixed(2)} seconds.</p>`;
+
+        function formatTime(totalSec) {
+          let hours = Math.floor(totalSec / 3600);
+          let remainder = totalSec % 3600;
+          let minutes = Math.floor(remainder / 60);
+          let seconds = Math.floor(remainder % 60);
+          let formatted = "";
+          if (hours > 0) {
+            formatted += hours + "h ";
+          }
+          formatted += minutes + "m " + seconds + "s";
+          return formatted;
+        }
+
+        let outputHtml = "<h2>Results</h2>";
+        outputHtml += "<p><strong>Number of tasks:</strong> " + validRecords + "</p>";
+        outputHtml += "<p><strong>Total Time:</strong> " + formatTime(totalSeconds) + "</p>";
+        outputHtml += "<p><strong>Average (Lead) Time:</strong> " + formatTime(avgSeconds) + "</p>";
+        document.getElementById('output').innerHTML = outputHtml;
+
+        drawTimeline(taskData);
+      }
+
+      function timeToSeconds(timeStr) {
+        const match = timeStr.match(/^(\d{2}):(\d{2}):(\d{2})\s*([AP]M)$/i);
+        if (!match) return NaN;
+        let [_, hours, minutes, seconds, period] = match;
+        hours = parseInt(hours, 10);
+        minutes = parseInt(minutes, 10);
+        seconds = parseInt(seconds, 10);
+        if (period.toUpperCase() === 'PM' && hours !== 12) hours += 12;
+        if (period.toUpperCase() === 'AM' && hours === 12) hours = 0;
+        return hours * 3600 + minutes * 60 + seconds;
+      }
+
+      function drawTimeline(taskData) {
+        const canvas = document.getElementById('timeline');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas width to 100% of parent (body) width
+        canvas.width = document.body.clientWidth - 40; // Subtracting some margin (20px on each side)
+        const width = canvas.width;
+        const height = canvas.height;
+
+        ctx.clearRect(0, 0, width, height);
+
+        // Add background color
+        ctx.fillStyle = '#cdc8b0';
+        ctx.fillRect(0, 0, width, height);
+
+        // Draw timeline base (0-24 hours)
+        ctx.strokeStyle = '#4e4b42';
+        ctx.beginPath();
+        ctx.moveTo(20, height - 50);
+        ctx.lineTo(width - 20, height - 50);
+        ctx.stroke();
+
+        // Draw hour markers (12 AM - 11 PM)
+        const pixelsPerHour = (width - 40) / 24;
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#4e4b42'; // Black text
+        for (let i = 0; i <= 24; i++) {
+          const x = 20 + i * pixelsPerHour;
+          ctx.beginPath();
+          ctx.strokeStyle = '#4e4b42'; // Black tick marks
+          ctx.moveTo(x, height - 50);
+          ctx.lineTo(x, height - 45);
+          ctx.stroke();
+          
+          // Convert 0-24 to 12-hour AM/PM format
+          let hourText;
+          if (i === 0 || i === 24) {
+            hourText = '12am';
+          } else if (i === 12) {
+            hourText = '12pm';
+          } else if (i < 12) {
+            hourText = `${i}am`;
+          } else {
+            hourText = `${i - 12}pm`;
+          }
+          ctx.fillText(hourText, x, height - 33);
+        }
+
+        const totalDisplaySeconds = 24 * 3600;
+        const scale = (width - 40) / totalDisplaySeconds;
+
+        // Draw tasks
+        // First, draw all rectangles
+        taskData.forEach((task) => {
+          const startX = 20 + task.startTime * scale;
+          const durationWidth = task.duration * scale;
+
+          ctx.fillStyle = '#4e4b42';
+          ctx.fillRect(startX, 40, durationWidth, 56); // Assuming height is 30 from your last change
+        });
+
+        // Then, draw all dots on top
+        taskData.forEach((task) => {
+          const startX = 20 + task.startTime * scale;
+
+          ctx.fillStyle = '#cd664d';
+          ctx.beginPath();
+          ctx.arc(startX, 68, 5, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    </script>
+  </body>
+</html>
